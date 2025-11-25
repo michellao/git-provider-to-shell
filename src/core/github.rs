@@ -1,11 +1,16 @@
 use std::str::FromStr;
+use actix_web::web::Bytes;
 use actix_web::{http::header::HeaderMap, HttpRequest, HttpResponse};
 use super::common::calling_script_shell;
 
 use super::common::{EventType, GitProvider, Headers};
 
-pub struct Github {
-    pub prefix: String,
+pub struct Github;
+
+impl ToString for Github {
+    fn to_string(&self) -> String {
+        String::from("github")
+    }
 }
 
 fn github_headers(headers: &HeaderMap) -> Option<Headers> {
@@ -23,7 +28,7 @@ fn github_headers(headers: &HeaderMap) -> Option<Headers> {
 
 impl GitProvider for Github
 {
-    fn webhook(self, http_request: HttpRequest, req_body: String) -> HttpResponse {
+    fn webhook(&self, http_request: HttpRequest, req_body: &Bytes) -> HttpResponse {
         let headers = http_request.headers();
         log::debug!("GitHub headers: {:?}", headers);
         match github_headers(headers) {
@@ -34,15 +39,18 @@ impl GitProvider for Github
                     return HttpResponse::BadRequest().body("Invalid signature format");
                 }
                 let hash256 = split_signature[1];
-                if !Github::verify_signature(hash256.as_bytes(), req_body.as_bytes()) {
+                if !Github::verify_signature(hash256.as_bytes(), req_body.iter().as_slice()) {
                     return HttpResponse::Unauthorized().body("Invalid signature");
                 }
                 let event_type = github_headers.event_type;
                 tokio::spawn({
-                    calling_script_shell(self.prefix, event_type, req_body)
+                    calling_script_shell(self.to_string(), event_type, req_body.clone())
                 });
             }
-            None => return HttpResponse::BadRequest().body("Invalid headers"),
+            None => {
+                log::warn!("missing GitHub headers: {:?}", headers);
+                return HttpResponse::BadRequest().body("Invalid headers")
+            },
         }
         HttpResponse::Accepted().body("Accepted")
     }

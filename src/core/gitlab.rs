@@ -1,11 +1,16 @@
 use std::str::FromStr;
 use actix_web::http::header::HeaderValue;
+use actix_web::web::Bytes;
 use actix_web::{http::header::HeaderMap, HttpRequest, HttpResponse};
 use super::common::{EventType, GitProvider, Headers};
 use super::common::calling_script_shell;
 
-pub struct Gitlab {
-    pub prefix: String,
+pub struct Gitlab;
+
+impl ToString for Gitlab {
+    fn to_string(&self) -> String {
+        String::from("gitlab")
+    }
 }
 
 fn parsing_event_gitlab(gitlab_event: &HeaderValue) -> Option<EventType> {
@@ -33,7 +38,7 @@ fn gitlab_headers(headers: &HeaderMap) -> Option<Headers> {
 }
 
 impl GitProvider for Gitlab {
-    fn webhook(self, http_request: HttpRequest, req_body: String) -> HttpResponse {
+    fn webhook(&self, http_request: HttpRequest, req_body: &Bytes) -> HttpResponse {
         let headers = http_request.headers();
         log::debug!("GitLab headers: {:?}", headers);
         match gitlab_headers(headers) {
@@ -44,7 +49,7 @@ impl GitProvider for Gitlab {
                 }
                 let event_type = gitlab_headers.event_type;
                 tokio::spawn({
-                    calling_script_shell(self.prefix, event_type, req_body)
+                    calling_script_shell(self.to_string(), event_type, req_body.clone())
                 });
             }
             None => return HttpResponse::BadRequest().body("Invalid headers"),

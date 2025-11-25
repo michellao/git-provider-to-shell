@@ -1,5 +1,5 @@
 use std::{io::Write, process::{Command, Stdio}, str::FromStr};
-use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, post, web::{self, Bytes}};
 use log::info;
 use serde::{Deserialize, Serialize};
 use crate::{cli::Provider, core::{github::Github, gitlab::Gitlab}};
@@ -14,14 +14,14 @@ pub enum EventType {
 }
 
 impl FromStr for EventType {
-    type Err = String;
+    type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "package" => Ok(EventType::Package),
             "push" => Ok(EventType::Push),
             "ping" => Ok(EventType::Ping),
             "tag" => Ok(EventType::Tag),
-            _ => Err(format!("Invalid event type"))
+            _ => Err("Invalid event type")
         }
     }
 }
@@ -32,10 +32,10 @@ pub struct Headers {
 }
 
 pub trait GitProvider {
-    fn webhook(self, http_request: HttpRequest, req_body: String) -> HttpResponse;
+    fn webhook(&self, http_request: HttpRequest, req_body: &Bytes) -> HttpResponse;
 }
 
-pub async fn calling_script_shell(prefix: String, event_type: EventType, req_body: String) {
+pub async fn calling_script_shell(prefix: String, event_type: EventType, req_body: Bytes) {
     match event_type {
         EventType::Package | EventType::Tag => {
             let program_name = format!("./{}-package.sh", prefix);
@@ -47,12 +47,14 @@ pub async fn calling_script_shell(prefix: String, event_type: EventType, req_bod
 
             let mut stdin = child.stdin.take().expect("Failed to open stdin");
             std::thread::spawn(move || {
-                stdin.write_all(req_body.as_bytes()).expect("Failed to write to stdin");
+                stdin.write_all(req_body.iter().as_slice()).expect("Failed to write to stdin");
             });
 
             let output = child.wait_with_output().expect("Failed to read stdout");
             info!("Package event received");
-            info!("{}", String::from_utf8_lossy(&output.stdout));
+            if !output.stdout.is_empty() {
+                info!("{}", String::from_utf8_lossy(&output.stdout));
+            }
         },
         EventType::Ping => {
             info!("Ping event received");
@@ -64,26 +66,22 @@ pub async fn calling_script_shell(prefix: String, event_type: EventType, req_bod
 }
 
 #[post("/webhook")]
-pub async fn webhook_request(data: web::Data<Provider>, http_request: HttpRequest, req_body: String) -> impl Responder {
+pub async fn webhook_request(data: web::Data<Provider>, http_request: HttpRequest, req_body: Bytes) -> impl Responder {
     let proviver_enabled = data.as_ref();
-    let github = Github {
-        prefix: String::from("github"),
-    };
-    let gitlab = Gitlab {
-        prefix: String::from("gitlab"),
-    };
+    let github = Github;
+    let gitlab = Gitlab;
     match proviver_enabled {
-        Provider::Github => github.webhook(http_request, req_body),
-        Provider::Gitlab => gitlab.webhook(http_request, req_body),
+        Provider::Github => github.webhook(http_request, &req_body),
+        Provider::Gitlab => gitlab.webhook(http_request, &req_body),
         Provider::Both => {
             let user_agent = http_request.headers().get("User-Agent");
             match user_agent {
                 Some(ua) => {
                     let str_ua = ua.to_str().unwrap();
                     if str_ua.contains("GitLab") {
-                        return gitlab.webhook(http_request, req_body);
+                        return gitlab.webhook(http_request, &req_body);
                     } else if str_ua.contains("GitHub") {
-                        return github.webhook(http_request, req_body);
+                        return github.webhook(http_request, &req_body);
                     } else {
                         return HttpResponse::BadRequest().body("Unknown User-Agent header");
                     }
