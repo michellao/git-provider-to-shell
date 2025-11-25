@@ -1,5 +1,5 @@
 [package]
-name = "github-webhook"
+name = "git-provider-webhook"
 version = "0.2.4"
 edition = "2024"
 rust-version = "1.89"
