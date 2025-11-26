@@ -1,5 +1,6 @@
 mod core;
 mod cli;
+mod json;
 
 use log::info;
 use actix_web::{web, App, HttpServer};
