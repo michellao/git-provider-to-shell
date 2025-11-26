@@ -1,8 +1,8 @@
 use std::str::FromStr;
 use actix_web::web::Bytes;
 use actix_web::{http::header::HeaderMap, HttpRequest, HttpResponse};
+use crate::json::github::GithubPackageWebhook;
 use super::common::calling_script_shell;
-
 use super::common::{EventType, GitProvider, Headers};
 
 pub struct Github;
@@ -43,8 +43,9 @@ impl GitProvider for Github
                     return HttpResponse::Unauthorized().body("Invalid signature");
                 }
                 let event_type = github_headers.event_type;
+                let webhook_json: GithubPackageWebhook = serde_json::from_slice(req_body).unwrap();
                 tokio::spawn({
-                    calling_script_shell(self.to_string(), event_type, req_body.clone())
+                    calling_script_shell(self.to_string(), event_type, Some(webhook_json.package.name))
                 });
             }
             None => {

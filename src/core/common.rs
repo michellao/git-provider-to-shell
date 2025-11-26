@@ -1,4 +1,4 @@
-use std::{io::Write, process::{Command, Stdio}, str::FromStr};
+use std::{process::{Command, Stdio}, str::FromStr};
 use actix_web::{HttpRequest, HttpResponse, Responder, post, web::{self, Bytes}};
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ impl FromStr for EventType {
             "push" => Ok(EventType::Push),
             "ping" => Ok(EventType::Ping),
             "tag" => Ok(EventType::Tag),
-            _ => Err("Invalid event type")
+            _ => Err("Invalid event type"),
         }
     }
 }
@@ -35,20 +35,17 @@ pub trait GitProvider {
     fn webhook(&self, http_request: HttpRequest, req_body: &Bytes) -> HttpResponse;
 }
 
-pub async fn calling_script_shell(prefix: String, event_type: EventType, req_body: Bytes) {
+pub async fn calling_script_shell(provider: String, event_type: EventType, package_name: Option<String>) {
     match event_type {
         EventType::Package | EventType::Tag => {
-            let program_name = format!("./{}-package.sh", prefix);
-            let mut child = Command::new(program_name)
+            let program_name = format!("./{}-package.sh", provider);
+            let child = Command::new(program_name)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
+                .arg(serde_json::to_string(&event_type).unwrap())
+                .arg(package_name.unwrap_or_default())
                 .spawn()
                 .expect("Failed to execute package.sh");
-
-            let mut stdin = child.stdin.take().expect("Failed to open stdin");
-            std::thread::spawn(move || {
-                stdin.write_all(req_body.iter().as_slice()).expect("Failed to write to stdin");
-            });
 
             let output = child.wait_with_output().expect("Failed to read stdout");
             info!("Package event received");

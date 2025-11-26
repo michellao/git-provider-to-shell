@@ -38,7 +38,7 @@ fn gitlab_headers(headers: &HeaderMap) -> Option<Headers> {
 }
 
 impl GitProvider for Gitlab {
-    fn webhook(&self, http_request: HttpRequest, req_body: &Bytes) -> HttpResponse {
+    fn webhook(&self, http_request: HttpRequest, _req_body: &Bytes) -> HttpResponse {
         let headers = http_request.headers();
         log::debug!("GitLab headers: {:?}", headers);
         match gitlab_headers(headers) {
@@ -49,10 +49,13 @@ impl GitProvider for Gitlab {
                 }
                 let event_type = gitlab_headers.event_type;
                 tokio::spawn({
-                    calling_script_shell(self.to_string(), event_type, req_body.clone())
+                    calling_script_shell(self.to_string(), event_type, None)
                 });
             }
-            None => return HttpResponse::BadRequest().body("Invalid headers"),
+            None => {
+                log::warn!("missing GitLab headers: {:?}", headers);
+                return HttpResponse::BadRequest().body("Invalid headers")
+            },
         }
         HttpResponse::Accepted().body("Accepted")
     }
